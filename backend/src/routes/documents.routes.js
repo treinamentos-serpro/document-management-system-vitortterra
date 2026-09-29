@@ -1,23 +1,36 @@
 const express = require('express');
 const multer = require('multer');
 const documentsController = require('../controllers/documents.controller');
-const documentsRepository = require('../repositories/documents.repository');
 
-const router = express.Router();
-const upload = documentsRepository.createUploadMiddleware();
+function handleUploadErrors(uploadMiddleware) {
+  return (request, response, next) => {
+    uploadMiddleware(request, response, (error) => {
+      if (!error) return next();
 
-router.post('/upload', upload, documentsController.upload);
-router.get('/documents', documentsController.list);
-router.get('/documents/:id/download', documentsController.download);
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        error.statusCode = 413;
+        error.code = 'FILE_TOO_LARGE';
+      } else if (error.code && /^E[A-Z]+$/.test(error.code)) {
+        error.statusCode = 500;
+        error.code = 'STORAGE_ERROR';
+      } else {
+        error.statusCode = 400;
+        error.code = 'INVALID_REQUEST';
+      }
 
-router.use((error, _request, _response, next) => {
-  if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-    error.statusCode = 413;
-    error.code = 'FILE_TOO_LARGE';
-    error.message = 'O arquivo excede o tamanho máximo permitido.';
-  }
+      next(error);
+    });
+  };
+}
 
-  next(error);
-});
+function createDocumentsRouter(uploadMiddleware) {
+  const router = express.Router();
 
-module.exports = router;
+  router.post('/upload', handleUploadErrors(uploadMiddleware), documentsController.upload);
+  router.get('/documents', documentsController.list);
+  router.get('/documents/:id/download', documentsController.download);
+
+  return router;
+}
+
+module.exports = createDocumentsRouter;

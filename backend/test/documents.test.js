@@ -9,6 +9,7 @@ const temporaryStorage = fs.mkdtempSync(
   path.join(os.tmpdir(), 'dms-backend-test-'),
 );
 process.env.STORAGE_DIR = temporaryStorage;
+process.env.MAX_FILE_SIZE = '32';
 
 const app = require('../src/app');
 const documentsRepository = require('../src/repositories/documents.repository');
@@ -103,6 +104,46 @@ test('POST /upload salva e retorna os metadados do arquivo', async () => {
   assert.equal('filePath' in document, false);
 });
 
+test('POST /upload rejeita arquivos acima do limite configurado', async () => {
+  const multipart = multipartFile('large.txt', '123456789012345678901234567890123');
+  const response = await request('/upload', {
+    method: 'POST',
+    headers: multipart.headers,
+    body: multipart.body,
+  });
+
+  assert.equal(response.statusCode, 413);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: {
+      code: 'FILE_TOO_LARGE',
+      message: 'O arquivo excede o tamanho máximo permitido.',
+    },
+  });
+});
+
+test('download transmite arquivo enviado sem usar nome original como caminho', async () => {
+  const content = 'conteudo do arquivo';
+  const multipart = multipartFile('../../notes.txt', content);
+  const uploadResponse = await request('/upload', {
+    method: 'POST',
+    headers: multipart.headers,
+    body: multipart.body,
+  });
+  const document = JSON.parse(uploadResponse.body);
+  const storedDocument = documentsRepository.findById(document.id);
+
+  assert.equal(uploadResponse.statusCode, 201);
+  assert.equal(path.dirname(storedDocument.filePath), temporaryStorage);
+  assert.match(path.basename(storedDocument.filePath), /^[0-9a-f-]+\.txt$/);
+
+  const downloadResponse = await request(`/documents/${document.id}/download`);
+
+  assert.equal(downloadResponse.statusCode, 200);
+  assert.equal(downloadResponse.body, content);
+  assert.match(downloadResponse.headers['content-disposition'], /attachment/);
+  assert.equal(downloadResponse.headers['content-type'], 'text/plain');
+});
+
 test('GET /documents lista documentos do proprietário informado', async () => {
   const owner = `owner-${Date.now()}`;
   documentsRepository.save({
@@ -145,6 +186,26 @@ test('POST /upload sem arquivo retorna erro de validação', async () => {
 
 test('GET /documents/:id/download retorna 404 para documento inexistente', async () => {
   const response = await request('/documents/does-not-exist/download');
+
+  assert.equal(response.statusCode, 404);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: {
+      code: 'DOCUMENT_NOT_FOUND',
+      message: 'Documento não encontrado.',
+    },
+  });
+});
+
+test('GET /documents/:id/download retorna 404 se o arquivo físico sumiu', async () => {
+  const document = documentsRepository.save({
+    originalname: 'missing.txt',
+    size: 0,
+    mimetype: 'text/plain',
+    filename: 'missing.txt',
+    path: path.join(temporaryStorage, 'missing.txt'),
+  }, 'owner');
+
+  const response = await request(`/documents/${document.id}/download`);
 
   assert.equal(response.statusCode, 404);
   assert.deepEqual(JSON.parse(response.body), {

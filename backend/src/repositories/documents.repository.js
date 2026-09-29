@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const multer = require('multer');
 
 const storageDirectory = path.resolve(
-  process.env.STORAGE_DIR || path.join(process.cwd(), 'storage'),
+  process.env.STORAGE_DIR || path.join(__dirname, '../../storage'),
 );
 const documents = new Map();
 
@@ -15,17 +15,30 @@ const storage = multer.diskStorage({
     callback(null, storageDirectory);
   },
   filename: (_request, file, callback) => {
-    const extension = path.extname(file.originalname).toLowerCase();
+    const candidate = path.extname(file.originalname).toLowerCase();
+    const extension = /^\.[a-z0-9]{1,10}$/.test(candidate) ? candidate : '';
     callback(null, `${crypto.randomUUID()}${extension}`);
   },
 });
 
 function createUploadMiddleware() {
-  const maximumFileSize = Number(process.env.MAX_FILE_SIZE || 10 * 1024 * 1024);
+  const configuredMaximum = process.env.MAX_FILE_SIZE;
+  const maximumFileSize = configuredMaximum
+    ? Number(configuredMaximum)
+    : 10 * 1024 * 1024;
+
+  if (!Number.isSafeInteger(maximumFileSize) || maximumFileSize <= 0) {
+    throw new Error('MAX_FILE_SIZE deve ser um inteiro positivo.');
+  }
 
   return multer({
     storage,
-    limits: { fileSize: maximumFileSize },
+    limits: {
+      fileSize: maximumFileSize,
+      files: 1,
+      fields: 0,
+      parts: 2,
+    },
   }).single('file');
 }
 

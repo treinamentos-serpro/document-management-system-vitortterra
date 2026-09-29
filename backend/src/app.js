@@ -11,13 +11,14 @@
 // usando multer com diskStorage. Não utilize provedores externos.
 
 const express = require('express');
-const documentsRoutes = require('./routes/documents.routes');
+const createDocumentsRouter = require('./routes/documents.routes');
+const documentsRepository = require('./repositories/documents.repository');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(documentsRoutes);
+app.use(createDocumentsRouter(documentsRepository.createUploadMiddleware()));
 
 // Endpoint de verificação de saúde. As demais rotas (/upload, /documents,
 // /documents/:id/download) serão implementadas durante o Passo 2.
@@ -26,10 +27,23 @@ app.get('/health', (req, res) => {
 });
 
 app.use((error, _request, response, _next) => {
-  response.status(error.statusCode || 500).json({
+  const messages = {
+    FILE_REQUIRED: 'Nenhum arquivo foi enviado.',
+    FILE_TOO_LARGE: 'O arquivo excede o tamanho máximo permitido.',
+    INVALID_REQUEST: 'A requisição enviada é inválida.',
+    DOCUMENT_NOT_FOUND: 'Documento não encontrado.',
+    STORAGE_ERROR: 'Não foi possível acessar o armazenamento.',
+    INTERNAL_ERROR: 'Ocorreu um erro interno.',
+  };
+  const code = Object.hasOwn(messages, error.code) ? error.code : 'INTERNAL_ERROR';
+  const statusCode = code === 'INTERNAL_ERROR'
+    ? 500
+    : error.statusCode || (code === 'FILE_TOO_LARGE' ? 413 : code === 'STORAGE_ERROR' ? 500 : 400);
+
+  response.status(statusCode).json({
     error: {
-      code: error.code || 'INTERNAL_ERROR',
-      message: error.message || 'Ocorreu um erro interno.',
+      code,
+      message: messages[code],
     },
   });
 });

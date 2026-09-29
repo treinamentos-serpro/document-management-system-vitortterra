@@ -8,7 +8,8 @@ function upload(file, owner) {
     throw error;
   }
 
-  return documentsRepository.save(file, owner);
+  const resolvedOwner = owner || process.env.DEFAULT_OWNER || 'anonymous';
+  return documentsRepository.save(file, resolvedOwner);
 }
 
 function list(owner) {
