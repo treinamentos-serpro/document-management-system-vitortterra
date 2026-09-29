@@ -103,6 +103,22 @@ test('POST /upload salva e retorna os metadados do arquivo', async () => {
   assert.equal('filePath' in document, false);
 });
 
+test('GET /documents/:id/download retorna o arquivo enviado', async () => {
+  const multipart = multipartFile('download.txt', 'conteudo para baixar');
+  const uploadResponse = await request('/upload', {
+    method: 'POST',
+    headers: multipart.headers,
+    body: multipart.body,
+  });
+  const document = JSON.parse(uploadResponse.body);
+
+  const downloadResponse = await request(`/documents/${document.id}/download`);
+
+  assert.equal(downloadResponse.statusCode, 200);
+  assert.match(downloadResponse.headers['content-disposition'], /download\.txt/);
+  assert.equal(downloadResponse.body, 'conteudo para baixar');
+});
+
 test('GET /documents lista documentos do proprietário informado', async () => {
   const owner = `owner-${Date.now()}`;
   documentsRepository.save({
